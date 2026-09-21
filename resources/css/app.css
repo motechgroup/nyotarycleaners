@@ -1,0 +1,74 @@
+@import 'tailwindcss';
+
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../storage/framework/views/*.php';
+@source '../js/**/*.{js,jsx}';
+@source '../views/**/*.blade.php';
+
+@theme {
+  --font-sans: 'Instrument Sans', system-ui, -apple-system, sans-serif;
+  --color-nyota-blue: #0B3FA8;
+  --color-nyota-dark: #062B73;
+  --color-nyota-light: #EAF3FF;
+  --color-nyota-sky: #D6E8FF;
+  --color-nyota-bg: #F4F8FF;
+}
+
+:root {
+  --nyota-primary: #0B3FA8;
+  --nyota-dark: #062B73;
+  --nyota-light: #EAF3FF;
+  --nyota-sky: #D6E8FF;
+  --nyota-bg: #F4F8FF;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--nyota-bg);
+  color: #1e293b;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+/* Glassmorphism & Micro Animations */
+.glass-header {
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(11, 63, 168, 0.1);
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(11, 63, 168, 0.12);
+  box-shadow: 0 10px 30px -10px rgba(11, 63, 168, 0.08);
+}
+
+.hero-gradient {
+  background: radial-gradient(circle at 50% 0%, rgba(11, 63, 168, 0.08) 0%, rgba(244, 248, 255, 1) 70%);
+}
+
+.blue-glow {
+  box-shadow: 0 15px 35px -5px rgba(11, 63, 168, 0.25);
+}
+
+@keyframes floatSlow {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+}
+
+.animate-float {
+  animation: floatSlow 4s ease-in-out infinite;
+}
+
+@keyframes pulseSubtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.animate-pulse-subtle {
+  animation: pulseSubtle 2.5s infinite;
+}
