@@ -415,22 +415,30 @@ export default function BookingApp() {
           <div className="space-y-6">
             {/* PRIMARY FIELD: PHONE NUMBER */}
             <div>
-              <label className="block text-xs font-extrabold text-[#062B73] uppercase tracking-wider mb-2">
-                Phone Number (Required Identifier for M-Pesa & Order History) *
-              </label>
+              <div className="flex justify-between items-center mb-2">
+                <label className="block text-xs font-extrabold text-[#062B73] uppercase tracking-wider">
+                  Phone Number (Kenyan Market: 07XX or 01XX) *
+                </label>
+                <span className="text-[10px] font-bold text-[#0B3FA8] bg-[#EAF3FF] px-2 py-0.5 rounded">
+                  Primary Customer ID
+                </span>
+              </div>
               <div className="relative">
                 <Phone className="w-5 h-5 text-[#0B3FA8] absolute left-3.5 top-3.5" />
                 <input
                   type="tel"
-                  placeholder="07XXXXXXXX or 2547XXXXXXXX"
+                  placeholder="07XXXXXXXX or 01XXXXXXXX"
                   value={customer.customer_phone}
                   onChange={(e) => setCustomer({ ...customer, customer_phone: e.target.value })}
                   className="w-full pl-11 pr-4 py-3 rounded-xl border-2 border-[#0B3FA8]/30 focus:border-[#0B3FA8] outline-none text-base font-bold text-[#062B73]"
                 />
               </div>
+              <p className="text-[11px] text-slate-500 mt-1">
+                Enter your mobile number (07... or 01...). New numbers will automatically create a new customer profile.
+              </p>
             </div>
 
-            {/* RETURNING CUSTOMER BADGE & HISTORY PREVIEW */}
+            {/* RETURNING OR NEW CUSTOMER BADGE */}
             {isLookupLoading && (
               <div className="text-xs text-[#0B3FA8] font-bold flex items-center space-x-2">
                 <RefreshCw className="w-4 h-4 animate-spin" />
@@ -443,7 +451,7 @@ export default function BookingApp() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2 text-emerald-800 font-bold text-xs">
                     <Star className="w-4 h-4 text-emerald-600 fill-emerald-600" />
-                    <span>Welcome Back! Returning Customer</span>
+                    <span>Welcome Back! Returning Customer: {customerHistory.customer_name}</span>
                   </div>
                   <span className="text-[10px] font-black bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded">
                     {customerHistory.total_orders} Previous Orders
@@ -451,6 +459,16 @@ export default function BookingApp() {
                 </div>
                 <div className="text-xs text-emerald-700">
                   Total Spent: <strong>KSh {customerHistory.total_spent.toLocaleString()}</strong>
+                </div>
+              </div>
+            )}
+
+            {customerHistory && !customerHistory.is_returning_customer && customer.customer_phone.length >= 9 && (
+              <div className="p-3.5 rounded-xl bg-[#EAF3FF] border border-[#0B3FA8]/20 flex items-center space-x-3 text-xs text-[#062B73]">
+                <Sparkles className="w-4 h-4 text-[#0B3FA8] shrink-0" />
+                <div>
+                  <span className="font-bold block">New Customer Profile</span>
+                  <span>This phone number is new. A new customer record will be created automatically upon checkout.</span>
                 </div>
               </div>
             )}

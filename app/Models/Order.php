@@ -14,6 +14,7 @@ class Order extends Model
 
     protected $fillable = [
         'order_number',
+        'customer_id',
         'customer_name',
         'customer_email',
         'customer_phone',
@@ -37,6 +38,11 @@ class Order extends Model
         'balance_amount' => 'decimal:2',
         'pickup_date' => 'date',
     ];
+
+    public function customer()
+    {
+        return $this->belongsTo(Customer::class);
+    }
 
     public function items(): HasMany
     {
@@ -67,5 +73,9 @@ class Order extends Model
         }
 
         $this->save();
+
+        if ($this->customer) {
+            $this->customer->recalculateStats();
+        }
     }
 }

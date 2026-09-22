@@ -421,14 +421,19 @@ export default function AdminPOS() {
           {/* CLIENT IDENTIFICATION (PHONE NUMBER FIRST) */}
           <div className="space-y-3 pt-3 border-t border-slate-100 text-xs">
             <div>
-              <label className="block font-extrabold text-[#062B73] uppercase tracking-wider mb-1">
-                Client Phone Number (Primary ID) *
-              </label>
+              <div className="flex justify-between items-center mb-1">
+                <label className="block font-extrabold text-[#062B73] uppercase tracking-wider">
+                  Client Phone (07XX / 01XX) *
+                </label>
+                <span className="text-[10px] font-bold text-[#0B3FA8] bg-[#EAF3FF] px-1.5 py-0.5 rounded">
+                  Primary ID
+                </span>
+              </div>
               <div className="relative">
                 <Phone className="w-4 h-4 text-[#0B3FA8] absolute left-3 top-2.5" />
                 <input
                   type="tel"
-                  placeholder="07XXXXXXXX"
+                  placeholder="07XXXXXXXX or 01XXXXXXXX"
                   value={customerPhone}
                   onChange={(e) => setCustomerPhone(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 rounded-xl border-2 border-[#0B3FA8]/30 focus:border-[#0B3FA8] outline-none font-bold text-sm"
@@ -436,7 +441,7 @@ export default function AdminPOS() {
               </div>
             </div>
 
-            {/* RETURNING CUSTOMER BADGE */}
+            {/* RETURNING OR NEW CUSTOMER BADGE */}
             {isLookupLoading && (
               <div className="text-xs text-[#0B3FA8] font-bold flex items-center space-x-2">
                 <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -449,7 +454,7 @@ export default function AdminPOS() {
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-emerald-800 text-xs flex items-center space-x-1">
                     <Star className="w-3.5 h-3.5 text-emerald-600 fill-emerald-600" />
-                    <span>Returning Client</span>
+                    <span>Returning Client: {customerHistory.customer_name}</span>
                   </span>
                   <span className="text-[10px] font-black bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded">
                     {customerHistory.total_orders} Past Orders
@@ -457,6 +462,16 @@ export default function AdminPOS() {
                 </div>
                 <div className="text-[11px] text-emerald-700">
                   Total Spent: <strong>KSh {customerHistory.total_spent.toLocaleString()}</strong>
+                </div>
+              </div>
+            )}
+
+            {customerHistory && !customerHistory.is_returning_customer && customerPhone.length >= 9 && (
+              <div className="p-2.5 rounded-xl bg-[#EAF3FF] border border-[#0B3FA8]/20 flex items-center space-x-2 text-xs text-[#062B73]">
+                <Sparkles className="w-4 h-4 text-[#0B3FA8] shrink-0" />
+                <div>
+                  <span className="font-bold">New Client Profile</span>
+                  <span className="block text-[11px]">Will be created automatically on checkout.</span>
                 </div>
               </div>
             )}
