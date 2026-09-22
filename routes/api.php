@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AdminPaymentController;
+use App\Http\Controllers\Api\AdminServiceController;
 use App\Http\Controllers\Api\MpesaController;
 use App\Http\Controllers\Api\OrderController;
 use Illuminate\Support\Facades\Route;
@@ -21,4 +22,11 @@ Route::prefix('v1')->group(function () {
     Route::get('/admin/payments', [AdminPaymentController::class, 'payments']);
     Route::get('/admin/reconciliation', [AdminPaymentController::class, 'reconciliation']);
     Route::post('/admin/settings', [AdminPaymentController::class, 'updateSettings']);
+
+    // Admin ERP Service & Price Management
+    Route::get('/admin/services', [AdminServiceController::class, 'index']);
+    Route::post('/admin/services', [AdminServiceController::class, 'store']);
+    Route::put('/admin/services/{id}', [AdminServiceController::class, 'update']);
+    Route::patch('/admin/services/{id}/toggle-status', [AdminServiceController::class, 'toggleStatus']);
+    Route::delete('/admin/services/{id}', [AdminServiceController::class, 'destroy']);
 });
