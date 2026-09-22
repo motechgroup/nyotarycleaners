@@ -12,11 +12,9 @@ import {
   ArrowRight, 
   ArrowLeft,
   RefreshCw,
-  MapPin,
-  Calendar,
   User,
-  Mail,
-  FileText
+  History,
+  Star
 } from 'lucide-react';
 
 export default function BookingApp() {
@@ -30,29 +28,29 @@ export default function BookingApp() {
   });
   const [cart, setCart] = useState({});
   const [customer, setCustomer] = useState({
-    customer_name: '',
     customer_phone: '',
-    customer_email: '',
-    delivery_option: 'pickup_delivery',
-    delivery_address: '',
+    customer_name: '',
+    delivery_option: 'drop_off',
     pickup_date: new Date(Date.now() + 86400000).toISOString().split('T')[0],
     notes: '',
   });
 
+  // Returning Customer History State
+  const [customerHistory, setCustomerHistory] = useState(null);
+  const [isLookupLoading, setIsLookupLoading] = useState(false);
+
   const [paymentMethod, setPaymentMethod] = useState('mpesa');
-  const [payAmountType, setPayAmountType] = useState('full'); // 'full' or 'deposit'
-  const [mpesaPhone, setMpesaPhone] = useState('');
+  const [payAmountType, setPayAmountType] = useState('full');
   const [createdOrder, setCreatedOrder] = useState(null);
   const [paymentObj, setPaymentObj] = useState(null);
   
   // Loading & STK status states
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const [stkState, setStkState] = useState('idle'); // 'idle' | 'initiating' | 'awaiting_pin' | 'success' | 'failed'
+  const [stkState, setStkState] = useState('idle');
   const [stkMessage, setStkMessage] = useState('');
   const [checkoutRequestId, setCheckoutRequestId] = useState(null);
 
-  // Fetch Services & Config on load
   useEffect(() => {
     fetch('/api/v1/services')
       .then((res) => res.json())
@@ -64,10 +62,34 @@ export default function BookingApp() {
           }
         }
       })
-      .catch((err) => console.error('Error fetching services:', err));
+      .catch((err) => console.error(err));
   }, []);
 
-  // Poll payment status if awaiting STK prompt
+  // Auto-Lookup Customer History when phone number reaches 9+ digits
+  useEffect(() => {
+    const cleaned = customer.customer_phone.replace(/[^0-9]/g, '');
+    if (cleaned.length >= 9) {
+      setIsLookupLoading(true);
+      fetch(`/api/v1/customers/history?phone=${cleaned}`)
+        .then((res) => res.json())
+        .then((data) => {
+          setIsLookupLoading(false);
+          if (data.success && data.is_returning_customer) {
+            setCustomerHistory(data);
+            if (data.customer_name && !customer.customer_name) {
+              setCustomer((prev) => ({ ...prev, customer_name: data.customer_name }));
+            }
+          } else {
+            setCustomerHistory(null);
+          }
+        })
+        .catch(() => setIsLookupLoading(false));
+    } else {
+      setCustomerHistory(null);
+    }
+  }, [customer.customer_phone]);
+
+  // STK Status Poll
   useEffect(() => {
     let intervalId = null;
     if (stkState === 'awaiting_pin' && checkoutRequestId) {
@@ -95,7 +117,7 @@ export default function BookingApp() {
               }
             }
           })
-          .catch((err) => console.error('Status poll error:', err));
+          .catch((err) => console.error(err));
       }, 3000);
     }
     return () => {
@@ -133,28 +155,20 @@ export default function BookingApp() {
     return subtotal;
   };
 
-  // Step 2 Validation
   const handleProceedToPayment = () => {
-    if (!customer.customer_name.trim()) {
-      setErrorMsg('Please enter your full name.');
-      return;
-    }
     if (!customer.customer_phone.trim()) {
-      setErrorMsg('Please enter your phone number.');
+      setErrorMsg('Please enter customer phone number.');
       return;
     }
     setErrorMsg('');
-    setMpesaPhone(customer.customer_phone);
     setStep(3);
   };
 
-  // Submit Order Creation
   const handleCreateOrderAndPay = async () => {
     setErrorMsg('');
     setLoading(true);
 
     try {
-      // 1. Create order
       const itemsPayload = Object.entries(cart).map(([serviceId, qty]) => ({
         service_id: parseInt(serviceId),
         quantity: qty,
@@ -164,11 +178,9 @@ export default function BookingApp() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customer_name: customer.customer_name,
-          customer_email: customer.customer_email || null,
           customer_phone: customer.customer_phone,
+          customer_name: customer.customer_name || null,
           delivery_option: customer.delivery_option,
-          delivery_address: customer.delivery_address || null,
           pickup_date: customer.pickup_date || null,
           notes: customer.notes || null,
           items: itemsPayload,
@@ -183,14 +195,13 @@ export default function BookingApp() {
       const order = orderData.order;
       setCreatedOrder(order);
 
-      // If Cash or Pay After Service
       if (paymentMethod === 'cash' || config.payment_mode_required === 'PAY_AFTER_SERVICE') {
-        const cashRes = await fetch('/api/v1/payments/mpesa/stk-push', {
+        fetch('/api/v1/payments/mpesa/stk-push', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             order_id: order.id,
-            phone_number: mpesaPhone,
+            phone_number: customer.customer_phone,
             amount: 0,
           }),
         }).catch(() => null);
@@ -200,7 +211,6 @@ export default function BookingApp() {
         return;
       }
 
-      // 2. Initiate M-Pesa STK Push
       setStkState('initiating');
       const amountToCharge = getChargeAmount();
 
@@ -209,7 +219,7 @@ export default function BookingApp() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           order_id: order.id,
-          phone_number: mpesaPhone,
+          phone_number: customer.customer_phone,
           amount: amountToCharge,
         }),
       });
@@ -225,16 +235,15 @@ export default function BookingApp() {
         setStep(4);
       } else {
         setStkState('failed');
-        setErrorMsg(stkData.message || 'Failed to trigger M-Pesa payment prompt.');
+        setErrorMsg(stkData.message || 'Failed to trigger M-Pesa prompt.');
       }
     } catch (err) {
       setLoading(false);
       setStkState('failed');
-      setErrorMsg(err.message || 'An unexpected error occurred.');
+      setErrorMsg(err.message || 'An error occurred.');
     }
   };
 
-  // Sandbox simulation helper
   const handleSimulateSandboxSuccess = () => {
     if (!checkoutRequestId) return;
     setLoading(true);
@@ -254,10 +263,6 @@ export default function BookingApp() {
             }));
           }
         }
-      })
-      .catch((err) => {
-        setLoading(false);
-        console.error(err);
       });
   };
 
@@ -290,7 +295,7 @@ export default function BookingApp() {
           </div>
           <div className={`flex items-center space-x-2 ${step >= 2 ? 'text-[#0B3FA8] font-bold' : ''}`}>
             <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs ${step >= 2 ? 'bg-[#0B3FA8] text-white' : 'bg-slate-100'}`}>2</span>
-            <span className="hidden sm:inline">Details</span>
+            <span className="hidden sm:inline">Phone & Details</span>
           </div>
           <div className="h-0.5 flex-1 bg-slate-200 mx-3">
             <div className="h-full bg-[#0B3FA8] transition-all" style={{ width: step >= 3 ? '100%' : '0%' }}></div>
@@ -352,7 +357,7 @@ export default function BookingApp() {
                       <button
                         onClick={() => updateQuantity(service.id, -1)}
                         disabled={qty === 0}
-                        className="w-8 h-8 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:opacity-30 disabled:cursor-not-allowed font-bold text-lg flex items-center justify-center"
+                        className="w-8 h-8 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:opacity-30 font-bold text-lg flex items-center justify-center"
                       >
                         -
                       </button>
@@ -370,7 +375,6 @@ export default function BookingApp() {
             })}
           </div>
 
-          {/* CART SUMMARY BAR */}
           {subtotal > 0 && (
             <div className="sticky bottom-4 bg-white/95 backdrop-blur-md border border-[#0B3FA8]/20 p-5 rounded-2xl shadow-xl flex items-center justify-between mt-8">
               <div>
@@ -391,11 +395,14 @@ export default function BookingApp() {
         </div>
       )}
 
-      {/* STEP 2: CUSTOMER & DELIVERY DETAILS */}
+      {/* STEP 2: PHONE NUMBER PRIMARY CLIENT IDENTIFIER */}
       {step === 2 && (
         <div className="bg-white rounded-2xl p-6 sm:p-8 border border-slate-200 shadow-sm space-y-6">
           <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-            <h2 className="text-xl font-bold text-[#062B73]">Pickup & Customer Details</h2>
+            <div>
+              <h2 className="text-xl font-bold text-[#062B73]">Client Phone Number</h2>
+              <p className="text-xs text-slate-500">Phone number is your primary account identifier and tracks your cleaning history.</p>
+            </div>
             <button
               onClick={() => setStep(1)}
               className="text-xs font-semibold text-[#0B3FA8] hover:underline flex items-center space-x-1"
@@ -405,89 +412,72 @@ export default function BookingApp() {
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-6">
+            {/* PRIMARY FIELD: PHONE NUMBER */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-                Full Name *
+              <label className="block text-xs font-extrabold text-[#062B73] uppercase tracking-wider mb-2">
+                Phone Number (Required Identifier for M-Pesa & Order History) *
               </label>
               <div className="relative">
-                <User className="w-5 h-5 text-slate-400 absolute left-3 top-3" />
-                <input
-                  type="text"
-                  placeholder="e.g. Jane Doe"
-                  value={customer.customer_name}
-                  onChange={(e) => setCustomer({ ...customer, customer_name: e.target.value })}
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 focus:border-[#0B3FA8] focus:ring-2 focus:ring-[#0B3FA8]/20 outline-none text-sm"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-                Phone Number (for M-Pesa STK Push) *
-              </label>
-              <div className="relative">
-                <Phone className="w-5 h-5 text-slate-400 absolute left-3 top-3" />
+                <Phone className="w-5 h-5 text-[#0B3FA8] absolute left-3.5 top-3.5" />
                 <input
                   type="tel"
                   placeholder="07XXXXXXXX or 2547XXXXXXXX"
                   value={customer.customer_phone}
                   onChange={(e) => setCustomer({ ...customer, customer_phone: e.target.value })}
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 focus:border-[#0B3FA8] focus:ring-2 focus:ring-[#0B3FA8]/20 outline-none text-sm"
+                  className="w-full pl-11 pr-4 py-3 rounded-xl border-2 border-[#0B3FA8]/30 focus:border-[#0B3FA8] outline-none text-base font-bold text-[#062B73]"
                 />
               </div>
             </div>
 
+            {/* RETURNING CUSTOMER BADGE & HISTORY PREVIEW */}
+            {isLookupLoading && (
+              <div className="text-xs text-[#0B3FA8] font-bold flex items-center space-x-2">
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>Checking customer history...</span>
+              </div>
+            )}
+
+            {customerHistory && customerHistory.is_returning_customer && (
+              <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2 text-emerald-800 font-bold text-xs">
+                    <Star className="w-4 h-4 text-emerald-600 fill-emerald-600" />
+                    <span>Welcome Back! Returning Customer</span>
+                  </div>
+                  <span className="text-[10px] font-black bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded">
+                    {customerHistory.total_orders} Previous Orders
+                  </span>
+                </div>
+                <div className="text-xs text-emerald-700">
+                  Total Spent: <strong>KSh {customerHistory.total_spent.toLocaleString()}</strong>
+                </div>
+              </div>
+            )}
+
+            {/* OPTIONAL FIELD: NAME */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-                Email Address (Optional)
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                Client Name (Optional)
               </label>
               <div className="relative">
-                <Mail className="w-5 h-5 text-slate-400 absolute left-3 top-3" />
+                <User className="w-5 h-5 text-slate-400 absolute left-3.5 top-3" />
                 <input
-                  type="email"
-                  placeholder="jane@example.com"
-                  value={customer.customer_email}
-                  onChange={(e) => setCustomer({ ...customer, customer_email: e.target.value })}
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 focus:border-[#0B3FA8] focus:ring-2 focus:ring-[#0B3FA8]/20 outline-none text-sm"
+                  type="text"
+                  placeholder="e.g. Jane (Optional)"
+                  value={customer.customer_name}
+                  onChange={(e) => setCustomer({ ...customer, customer_name: e.target.value })}
+                  className="w-full pl-11 pr-4 py-2.5 rounded-xl border border-slate-300 focus:border-[#0B3FA8] outline-none text-sm"
                 />
               </div>
             </div>
 
+            {/* FULFILLMENT OPTION */}
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-                Preferred Pickup Date
-              </label>
-              <div className="relative">
-                <Calendar className="w-5 h-5 text-slate-400 absolute left-3 top-3" />
-                <input
-                  type="date"
-                  value={customer.pickup_date}
-                  onChange={(e) => setCustomer({ ...customer, pickup_date: e.target.value })}
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 focus:border-[#0B3FA8] focus:ring-2 focus:ring-[#0B3FA8]/20 outline-none text-sm"
-                />
-              </div>
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-                Service Delivery Option
+                Fulfillment Type
               </label>
               <div className="grid grid-cols-2 gap-4">
-                <button
-                  type="button"
-                  onClick={() => setCustomer({ ...customer, delivery_option: 'pickup_delivery' })}
-                  className={`p-4 rounded-xl border text-left transition-all ${
-                    customer.delivery_option === 'pickup_delivery'
-                      ? 'border-[#0B3FA8] bg-[#EAF3FF] ring-2 ring-[#0B3FA8]/20'
-                      : 'border-slate-200 hover:border-slate-300'
-                  }`}
-                >
-                  <Truck className="w-5 h-5 text-[#0B3FA8] mb-1" />
-                  <div className="font-bold text-sm text-[#062B73]">Home Doorstep Pickup & Delivery</div>
-                  <div className="text-xs text-slate-500">We pick up and return your clean clothes.</div>
-                </button>
-
                 <button
                   type="button"
                   onClick={() => setCustomer({ ...customer, delivery_option: 'drop_off' })}
@@ -498,29 +488,25 @@ export default function BookingApp() {
                   }`}
                 >
                   <ShoppingBag className="w-5 h-5 text-[#0B3FA8] mb-1" />
-                  <div className="font-bold text-sm text-[#062B73]">Store Drop-Off</div>
-                  <div className="text-xs text-slate-500">You drop off and collect at our store.</div>
+                  <div className="font-bold text-sm text-[#062B73]">Store Drop-off & Collection</div>
+                  <div className="text-xs text-slate-500">Drop off and collect garments at store.</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCustomer({ ...customer, delivery_option: 'pickup_delivery' })}
+                  className={`p-4 rounded-xl border text-left transition-all ${
+                    customer.delivery_option === 'pickup_delivery'
+                      ? 'border-[#0B3FA8] bg-[#EAF3FF] ring-2 ring-[#0B3FA8]/20'
+                      : 'border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <Truck className="w-5 h-5 text-[#0B3FA8] mb-1" />
+                  <div className="font-bold text-sm text-[#062B73]">Home Pickup & Delivery</div>
+                  <div className="text-xs text-slate-500">Valet collects and returns garments.</div>
                 </button>
               </div>
             </div>
-
-            {customer.delivery_option === 'pickup_delivery' && (
-              <div className="md:col-span-2">
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-                  Pickup & Delivery Physical Address
-                </label>
-                <div className="relative">
-                  <MapPin className="w-5 h-5 text-slate-400 absolute left-3 top-3" />
-                  <textarea
-                    rows="2"
-                    placeholder="Estate, House/Apartment No., Street / Landmark in Nairobi"
-                    value={customer.delivery_address}
-                    onChange={(e) => setCustomer({ ...customer, delivery_address: e.target.value })}
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 focus:border-[#0B3FA8] focus:ring-2 focus:ring-[#0B3FA8]/20 outline-none text-sm"
-                  ></textarea>
-                </div>
-              </div>
-            )}
           </div>
 
           <div className="pt-4 border-t border-slate-100 flex justify-end">
@@ -545,31 +531,21 @@ export default function BookingApp() {
               className="text-xs font-semibold text-[#0B3FA8] hover:underline flex items-center space-x-1"
             >
               <ArrowLeft className="w-4 h-4" />
-              <span>Back to Details</span>
+              <span>Back to Phone & Details</span>
             </button>
           </div>
 
-          {/* ORDER SUMMARY PREVIEW */}
-          <div className="bg-[#F4F8FF] rounded-xl p-5 border border-[#0B3FA8]/15 space-y-3">
+          <div className="bg-[#F4F8FF] rounded-xl p-5 border border-[#0B3FA8]/15 space-y-2">
             <div className="flex justify-between items-center text-sm">
               <span className="text-slate-600 font-medium">Order Total:</span>
               <span className="font-extrabold text-[#062B73] text-lg">KSh {subtotal.toLocaleString()}</span>
             </div>
-
-            {config.payment_mode_required === 'DEPOSIT' && (
-              <div className="pt-2 border-t border-[#0B3FA8]/10 flex justify-between items-center text-xs">
-                <span className="text-slate-600 font-medium">Required Deposit ({config.deposit_percentage}%):</span>
-                <span className="font-bold text-[#0B3FA8] text-sm">KSh {requiredDeposit.toLocaleString()}</span>
-              </div>
-            )}
+            <div className="text-xs text-slate-500 font-medium">
+              Client Phone: <strong className="text-slate-800">{customer.customer_phone}</strong>
+            </div>
           </div>
 
-          {/* PAYMENT OPTION CHOICES */}
           <div className="space-y-4">
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-              Payment Gateway
-            </label>
-
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <button
                 type="button"
@@ -577,7 +553,7 @@ export default function BookingApp() {
                 className={`p-5 rounded-2xl border text-left transition-all flex items-start space-x-4 ${
                   paymentMethod === 'mpesa'
                     ? 'border-[#0B3FA8] bg-[#EAF3FF] ring-2 ring-[#0B3FA8]/20 shadow-md'
-                    : 'border-slate-200 hover:border-slate-300'
+                    : 'border-slate-200'
                 }`}
               >
                 <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white font-black flex items-center justify-center shrink-0">
@@ -585,7 +561,7 @@ export default function BookingApp() {
                 </div>
                 <div>
                   <div className="font-bold text-slate-900 text-base">M-Pesa STK Push</div>
-                  <div className="text-xs text-slate-500">Pay directly from your phone prompt. Instant receipt.</div>
+                  <div className="text-xs text-slate-500">Pay directly from phone prompt. Instant receipt.</div>
                 </div>
               </button>
 
@@ -595,85 +571,34 @@ export default function BookingApp() {
                 className={`p-5 rounded-2xl border text-left transition-all flex items-start space-x-4 ${
                   paymentMethod === 'cash'
                     ? 'border-[#0B3FA8] bg-[#EAF3FF] ring-2 ring-[#0B3FA8]/20 shadow-md'
-                    : 'border-slate-200 hover:border-slate-300'
+                    : 'border-slate-200'
                 }`}
               >
                 <div className="w-10 h-10 rounded-xl bg-slate-700 text-white font-black flex items-center justify-center shrink-0">
                   <CreditCard className="w-5 h-5" />
                 </div>
                 <div>
-                  <div className="font-bold text-slate-900 text-base">Cash on Pickup / Delivery</div>
-                  <div className="text-xs text-slate-500">Pay cash directly when our rider arrives.</div>
+                  <div className="font-bold text-slate-900 text-base">Cash on Collection</div>
+                  <div className="text-xs text-slate-500">Pay cash upon delivery/collection.</div>
                 </div>
               </button>
             </div>
-
-            {/* M-PESA SPECIFIC PHONE FORM */}
-            {paymentMethod === 'mpesa' && (
-              <div className="mt-6 p-5 rounded-xl bg-slate-50 border border-slate-200 space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    M-Pesa Phone Number
-                  </label>
-                  <input
-                    type="tel"
-                    value={mpesaPhone}
-                    onChange={(e) => setMpesaPhone(e.target.value)}
-                    placeholder="07XXXXXXXX"
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:border-[#0B3FA8] outline-none text-base font-bold tracking-wide"
-                  />
-                  <p className="text-xs text-slate-500 mt-1">
-                    An M-Pesa STK payment prompt will be sent immediately to this number.
-                  </p>
-                </div>
-
-                {config.payment_mode_required === 'DEPOSIT' && (
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-                      Payment Amount Choice
-                    </label>
-                    <div className="flex space-x-4">
-                      <label className="flex items-center space-x-2 text-xs font-bold cursor-pointer">
-                        <input
-                          type="radio"
-                          name="payAmount"
-                          checked={payAmountType === 'full'}
-                          onChange={() => setPayAmountType('full')}
-                          className="accent-[#0B3FA8]"
-                        />
-                        <span>Pay Full Order (KSh {subtotal.toLocaleString()})</span>
-                      </label>
-                      <label className="flex items-center space-x-2 text-xs font-bold cursor-pointer">
-                        <input
-                          type="radio"
-                          name="payAmount"
-                          checked={payAmountType === 'deposit'}
-                          onChange={() => setPayAmountType('deposit')}
-                          className="accent-[#0B3FA8]"
-                        />
-                        <span>Pay Required Deposit (KSh {requiredDeposit.toLocaleString()})</span>
-                      </label>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
 
           <div className="pt-4 border-t border-slate-100 flex justify-between items-center">
             <div className="text-[#0B3FA8] font-bold text-lg">
-              Amount to Pay: KSh {paymentMethod === 'mpesa' ? getChargeAmount().toLocaleString() : subtotal.toLocaleString()}
+              Amount to Pay: KSh {subtotal.toLocaleString()}
             </div>
 
             <button
               onClick={handleCreateOrderAndPay}
               disabled={loading}
-              className="bg-[#0B3FA8] hover:bg-[#062B73] disabled:opacity-50 text-white px-8 py-3.5 rounded-xl font-bold flex items-center space-x-2 shadow-lg shadow-[#0B3FA8]/25"
+              className="bg-[#0B3FA8] hover:bg-[#062B73] disabled:opacity-50 text-white px-8 py-3.5 rounded-xl font-bold flex items-center space-x-2 shadow-lg"
             >
               {loading ? (
                 <>
                   <RefreshCw className="w-5 h-5 animate-spin" />
-                  <span>Processing Order...</span>
+                  <span>Processing...</span>
                 </>
               ) : (
                 <>
@@ -686,44 +611,33 @@ export default function BookingApp() {
         </div>
       )}
 
-      {/* STEP 4: STK PUSH PROMPT POLLING MODAL */}
+      {/* STEP 4: STK PUSH PROMPT POLLING */}
       {step === 4 && (
         <div className="bg-white rounded-2xl p-8 border border-slate-200 shadow-xl text-center space-y-6 max-w-lg mx-auto">
           {stkState === 'awaiting_pin' && (
             <div className="space-y-6 py-4">
-              <div className="w-20 h-20 rounded-full bg-[#EAF3FF] text-[#0B3FA8] flex items-center justify-center mx-auto animate-pulse-glow">
+              <div className="w-20 h-20 rounded-full bg-[#EAF3FF] text-[#0B3FA8] flex items-center justify-center mx-auto animate-pulse">
                 <Phone className="w-10 h-10 animate-bounce text-[#0B3FA8]" />
               </div>
-
               <div>
                 <h3 className="text-2xl font-black text-[#062B73] mb-2">Check Your Phone</h3>
-                <p className="text-sm font-semibold text-slate-700">
-                  {stkMessage || 'Check your phone for the M-Pesa payment prompt.'}
-                </p>
+                <p className="text-sm font-semibold text-slate-700">{stkMessage}</p>
                 <p className="text-xs text-slate-500 mt-2">
-                  Enter your M-Pesa PIN on handset number <span className="font-bold text-slate-800">{mpesaPhone}</span> to complete payment.
+                  Enter your M-Pesa PIN on phone number <span className="font-bold text-slate-800">{customer.customer_phone}</span>.
                 </p>
-              </div>
-
-              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-center justify-between">
-                <span>Amount Requested:</span>
-                <span className="font-black text-[#0B3FA8] text-sm">KSh {getChargeAmount().toLocaleString()}</span>
               </div>
 
               <div className="flex items-center justify-center space-x-2 text-xs text-slate-400">
                 <RefreshCw className="w-4 h-4 animate-spin text-[#0B3FA8]" />
-                <span>Waiting for Safaricom confirmation callback...</span>
+                <span>Waiting for M-Pesa PIN confirmation...</span>
               </div>
 
-              {/* SANDBOX DEV QUICK TEST BUTTON */}
-              <div className="pt-4 border-t border-slate-100">
-                <button
-                  onClick={handleSimulateSandboxSuccess}
-                  className="text-xs font-bold text-[#0B3FA8] bg-[#EAF3FF] hover:bg-[#0B3FA8] hover:text-white px-4 py-2 rounded-lg transition-colors"
-                >
-                  [Sandbox Development Test: Simulate M-Pesa PIN Entry]
-                </button>
-              </div>
+              <button
+                onClick={handleSimulateSandboxSuccess}
+                className="text-xs font-bold text-[#0B3FA8] bg-[#EAF3FF] hover:bg-[#0B3FA8] hover:text-white px-4 py-2 rounded-lg transition-colors"
+              >
+                [Sandbox Test: Simulate PIN Entry]
+              </button>
             </div>
           )}
 
@@ -734,14 +648,10 @@ export default function BookingApp() {
               </div>
               <h3 className="text-2xl font-black text-slate-900">Payment Confirmed!</h3>
               <p className="text-sm text-slate-600">
-                M-Pesa Receipt Number:{' '}
-                <span className="font-bold text-slate-900">{paymentObj?.mpesa_receipt_number || 'Confirmed'}</span>
+                M-Pesa Receipt: <span className="font-bold text-slate-900">{paymentObj?.mpesa_receipt_number || 'Confirmed'}</span>
               </p>
-              <button
-                onClick={() => setStep(5)}
-                className="bg-[#0B3FA8] text-white px-8 py-3 rounded-xl font-bold shadow-lg"
-              >
-                View Order Receipt
+              <button onClick={() => setStep(5)} className="bg-[#0B3FA8] text-white px-8 py-3 rounded-xl font-bold shadow-lg">
+                View Receipt
               </button>
             </div>
           )}
@@ -752,11 +662,8 @@ export default function BookingApp() {
                 <AlertCircle className="w-12 h-12" />
               </div>
               <h3 className="text-xl font-bold text-slate-900">Payment Unsuccessful</h3>
-              <p className="text-xs text-red-600">{errorMsg || stkMessage}</p>
-              <button
-                onClick={() => setStep(3)}
-                className="bg-[#0B3FA8] text-white px-6 py-2.5 rounded-xl font-bold"
-              >
+              <p className="text-xs text-red-600">{errorMsg}</p>
+              <button onClick={() => setStep(3)} className="bg-[#0B3FA8] text-white px-6 py-2.5 rounded-xl font-bold">
                 Try Again
               </button>
             </div>
@@ -771,7 +678,7 @@ export default function BookingApp() {
             <div className="w-14 h-14 rounded-full bg-[#EAF3FF] text-[#0B3FA8] flex items-center justify-center mx-auto mb-3">
               <CheckCircle2 className="w-8 h-8" />
             </div>
-            <h2 className="text-2xl font-black text-[#062B73]">Order Received!</h2>
+            <h2 className="text-2xl font-black text-[#062B73]">Order Confirmed!</h2>
             <p className="text-xs font-bold text-[#0B3FA8] uppercase tracking-wider mt-1">
               Order #{createdOrder.order_number}
             </p>
@@ -779,19 +686,15 @@ export default function BookingApp() {
 
           <div className="space-y-3 text-sm">
             <div className="flex justify-between py-1.5 border-b border-slate-100">
-              <span className="text-slate-500">Customer:</span>
-              <span className="font-bold text-slate-800">{createdOrder.customer_name}</span>
-            </div>
-            <div className="flex justify-between py-1.5 border-b border-slate-100">
-              <span className="text-slate-500">Phone:</span>
+              <span className="text-slate-500">Client Phone:</span>
               <span className="font-bold text-slate-800">{createdOrder.customer_phone}</span>
             </div>
-            <div className="flex justify-between py-1.5 border-b border-slate-100">
-              <span className="text-slate-500">Delivery Method:</span>
-              <span className="font-bold text-slate-800 uppercase text-xs px-2 py-0.5 rounded bg-slate-100">
-                {createdOrder.delivery_option}
-              </span>
-            </div>
+            {createdOrder.customer_name && (
+              <div className="flex justify-between py-1.5 border-b border-slate-100">
+                <span className="text-slate-500">Client Name:</span>
+                <span className="font-bold text-slate-800">{createdOrder.customer_name}</span>
+              </div>
+            )}
             {paymentObj?.mpesa_receipt_number && (
               <div className="flex justify-between py-1.5 border-b border-slate-100">
                 <span className="text-slate-500">M-Pesa Receipt:</span>
@@ -802,21 +705,10 @@ export default function BookingApp() {
               <span className="text-slate-500">Total Order Amount:</span>
               <span className="font-bold text-slate-800">KSh {parseFloat(createdOrder.total_amount).toLocaleString()}</span>
             </div>
-            <div className="flex justify-between py-1.5 border-b border-slate-100">
-              <span className="text-slate-500">Amount Paid:</span>
-              <span className="font-bold text-emerald-600">KSh {parseFloat(createdOrder.paid_amount || 0).toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between py-1.5 border-b border-slate-100">
-              <span className="text-slate-500">Outstanding Balance:</span>
-              <span className="font-extrabold text-[#0B3FA8]">KSh {parseFloat(createdOrder.balance_amount || 0).toLocaleString()}</span>
-            </div>
           </div>
 
           <div className="pt-4 border-t border-slate-100 flex justify-between">
-            <button
-              onClick={() => window.print()}
-              className="text-xs font-bold text-slate-600 border border-slate-300 px-4 py-2.5 rounded-xl hover:bg-slate-50"
-            >
+            <button onClick={() => window.print()} className="text-xs font-bold text-slate-600 border border-slate-300 px-4 py-2.5 rounded-xl">
               Print Receipt
             </button>
             <button
@@ -827,7 +719,7 @@ export default function BookingApp() {
               }}
               className="bg-[#0B3FA8] text-white text-xs font-bold px-6 py-2.5 rounded-xl shadow"
             >
-              Book Another Service
+              New Order
             </button>
           </div>
         </div>

@@ -14,7 +14,7 @@ import {
   AlertCircle,
   Sparkles,
   Receipt,
-  ArrowRight,
+  Star,
   X
 } from 'lucide-react';
 
@@ -25,15 +25,19 @@ export default function AdminPOS() {
   
   // Cart & Customer state
   const [cart, setCart] = useState({});
-  const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [customerName, setCustomerName] = useState('');
   const [deliveryOption, setDeliveryOption] = useState('drop_off');
   const [paymentMethod, setPaymentMethod] = useState('mpesa');
+
+  // Customer History State
+  const [customerHistory, setCustomerHistory] = useState(null);
+  const [isLookupLoading, setIsLookupLoading] = useState(false);
   
   // Checkout & STK Push state
   const [loading, setLoading] = useState(false);
   const [createdOrder, setCreatedOrder] = useState(null);
-  const [stkState, setStkState] = useState('idle'); // 'idle' | 'initiating' | 'awaiting_pin' | 'success' | 'failed'
+  const [stkState, setStkState] = useState('idle');
   const [checkoutRequestId, setCheckoutRequestId] = useState(null);
   const [paymentObj, setPaymentObj] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
@@ -51,6 +55,30 @@ export default function AdminPOS() {
       })
       .catch((err) => console.error(err));
   }, []);
+
+  // Auto-Lookup Customer History when phone number is typed
+  useEffect(() => {
+    const cleaned = customerPhone.replace(/[^0-9]/g, '');
+    if (cleaned.length >= 9) {
+      setIsLookupLoading(true);
+      fetch(`/api/v1/customers/history?phone=${cleaned}`)
+        .then((res) => res.json())
+        .then((data) => {
+          setIsLookupLoading(false);
+          if (data.success && data.is_returning_customer) {
+            setCustomerHistory(data);
+            if (data.customer_name && !customerName) {
+              setCustomerName(data.customer_name);
+            }
+          } else {
+            setCustomerHistory(null);
+          }
+        })
+        .catch(() => setIsLookupLoading(false));
+    } else {
+      setCustomerHistory(null);
+    }
+  }, [customerPhone]);
 
   // Poll STK Push status at counter
   useEffect(() => {
@@ -111,7 +139,6 @@ export default function AdminPOS() {
 
   const subtotal = calculateSubtotal();
 
-  // Filtered Services
   const categories = ['ALL', ...new Set(services.map((s) => s.category))];
 
   const filteredServices = services.filter((s) => {
@@ -124,10 +151,6 @@ export default function AdminPOS() {
   const handlePOSCheckout = async () => {
     if (Object.keys(cart).length === 0) {
       setErrorMsg('Please select at least one service for the order.');
-      return;
-    }
-    if (!customerName.trim()) {
-      setErrorMsg('Please enter customer name.');
       return;
     }
     if (!customerPhone.trim()) {
@@ -144,13 +167,12 @@ export default function AdminPOS() {
         quantity: qty,
       }));
 
-      // 1. Create Order via API
       const orderRes = await fetch('/api/v1/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customer_name: customerName,
           customer_phone: customerPhone,
+          customer_name: customerName || null,
           delivery_option: deliveryOption,
           items: itemsPayload,
           notes: 'In-Store POS Order',
@@ -165,10 +187,8 @@ export default function AdminPOS() {
       const order = orderData.order;
       setCreatedOrder(order);
 
-      // 2. Handle Payment
       if (paymentMethod === 'cash') {
-        // Instant Cash payment initiation
-        const cashRes = await fetch('/api/v1/payments/mpesa/stk-push', {
+        fetch('/api/v1/payments/mpesa/stk-push', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -184,7 +204,6 @@ export default function AdminPOS() {
         return;
       }
 
-      // M-Pesa STK Push
       setStkState('initiating');
       const stkRes = await fetch('/api/v1/payments/mpesa/stk-push', {
         method: 'POST',
@@ -238,8 +257,8 @@ export default function AdminPOS() {
 
   const resetPOSForm = () => {
     setCart({});
-    setCustomerName('');
     setCustomerPhone('');
+    setCustomerName('');
     setCreatedOrder(null);
     setPaymentObj(null);
     setStkState('idle');
@@ -257,15 +276,12 @@ export default function AdminPOS() {
           <div>
             <h1 className="text-xl font-extrabold tracking-tight">Nyota In-Store Register & Checkout</h1>
             <p className="text-xs text-[#EAF3FF] uppercase font-bold tracking-wider">
-              Cashier Point of Sale System • Real-Time M-Pesa STK Push
+              Primary Client Identifier: Phone Number • Real-Time M-Pesa STK
             </p>
           </div>
         </div>
 
         <div className="flex items-center space-x-3 text-xs font-bold">
-          <span className="px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-            ● Register Active
-          </span>
           <a href="/admin" className="px-4 py-2 rounded-xl bg-white text-[#062B73] hover:bg-slate-100 transition-colors">
             Back to ERP
           </a>
@@ -285,14 +301,12 @@ export default function AdminPOS() {
         
         {/* LEFT 7 COLS: SERVICE CATALOG SEARCH & SELECTION */}
         <div className="lg:col-span-7 space-y-4">
-          
-          {/* SEARCH & CATEGORY PILLS */}
           <div className="bg-white p-4 rounded-2xl border border-slate-200 space-y-3 shadow-sm">
             <div className="relative">
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
               <input
                 type="text"
-                placeholder="Search dry cleaning services e.g. Suit, Laundry, Duvet..."
+                placeholder="Search services e.g. Suit, Laundry Washing, Ironing..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 focus:border-[#0B3FA8] text-xs font-semibold outline-none"
@@ -349,11 +363,10 @@ export default function AdminPOS() {
               );
             })}
           </div>
-
         </div>
 
-        {/* RIGHT 5 COLS: ACTIVE POS CART & CHECKOUT REGISTER */}
-        <div className="lg:col-span-5 bg-white p-6 rounded-2xl border border-slate-200 shadow-lg space-y-6">
+        {/* RIGHT 5 COLS: REGISTER & CLIENT IDENTIFICATION */}
+        <div className="lg:col-span-5 bg-white p-6 rounded-2xl border border-slate-200 shadow-lg space-y-5">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <h2 className="text-base font-bold text-[#062B73]">Current Order Register</h2>
             <span className="text-xs font-bold text-[#0B3FA8] px-2.5 py-1 rounded-full bg-[#EAF3FF]">
@@ -362,10 +375,10 @@ export default function AdminPOS() {
           </div>
 
           {/* ITEM LIST */}
-          <div className="space-y-3 max-h-56 overflow-y-auto pr-1">
+          <div className="space-y-2.5 max-h-48 overflow-y-auto pr-1">
             {Object.keys(cart).length === 0 ? (
-              <div className="text-center py-8 text-slate-400 text-xs">
-                Click services on the left to add items to order cart.
+              <div className="text-center py-6 text-slate-400 text-xs">
+                Click services on the left to add to order cart.
               </div>
             ) : (
               Object.entries(cart).map(([serviceId, qty]) => {
@@ -396,7 +409,7 @@ export default function AdminPOS() {
                       </button>
                     </div>
 
-                    <div className="font-black text-slate-900 ml-2">
+                    <div className="font-black text-slate-900">
                       KSh {itemTotal.toLocaleString()}
                     </div>
                   </div>
@@ -405,35 +418,62 @@ export default function AdminPOS() {
             )}
           </div>
 
-          {/* CUSTOMER INPUTS */}
+          {/* CLIENT IDENTIFICATION (PHONE NUMBER FIRST) */}
           <div className="space-y-3 pt-3 border-t border-slate-100 text-xs">
             <div>
+              <label className="block font-extrabold text-[#062B73] uppercase tracking-wider mb-1">
+                Client Phone Number (Primary ID) *
+              </label>
+              <div className="relative">
+                <Phone className="w-4 h-4 text-[#0B3FA8] absolute left-3 top-2.5" />
+                <input
+                  type="tel"
+                  placeholder="07XXXXXXXX"
+                  value={customerPhone}
+                  onChange={(e) => setCustomerPhone(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 rounded-xl border-2 border-[#0B3FA8]/30 focus:border-[#0B3FA8] outline-none font-bold text-sm"
+                />
+              </div>
+            </div>
+
+            {/* RETURNING CUSTOMER BADGE */}
+            {isLookupLoading && (
+              <div className="text-xs text-[#0B3FA8] font-bold flex items-center space-x-2">
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                <span>Searching customer history...</span>
+              </div>
+            )}
+
+            {customerHistory && customerHistory.is_returning_customer && (
+              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-emerald-800 text-xs flex items-center space-x-1">
+                    <Star className="w-3.5 h-3.5 text-emerald-600 fill-emerald-600" />
+                    <span>Returning Client</span>
+                  </span>
+                  <span className="text-[10px] font-black bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded">
+                    {customerHistory.total_orders} Past Orders
+                  </span>
+                </div>
+                <div className="text-[11px] text-emerald-700">
+                  Total Spent: <strong>KSh {customerHistory.total_spent.toLocaleString()}</strong>
+                </div>
+              </div>
+            )}
+
+            <div>
               <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
-                Customer Full Name *
+                Client Name (Optional)
               </label>
               <input
                 type="text"
-                placeholder="e.g. John Kamau"
+                placeholder="Name (Optional)"
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 focus:border-[#0B3FA8] outline-none font-semibold"
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-semibold outline-none"
               />
             </div>
 
-            <div>
-              <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
-                Customer Phone (for M-Pesa STK) *
-              </label>
-              <input
-                type="tel"
-                placeholder="07XXXXXXXX"
-                value={customerPhone}
-                onChange={(e) => setCustomerPhone(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 focus:border-[#0B3FA8] outline-none font-bold tracking-wide"
-              />
-            </div>
-
-            {/* PAYMENT CHOICE */}
             <div>
               <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
                 Payment Method
@@ -448,8 +488,8 @@ export default function AdminPOS() {
                       : 'border-slate-200 text-slate-600'
                   }`}
                 >
-                  <span className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[10px] font-black">M</span>
-                  <span>M-Pesa STK Push</span>
+                  <span className="w-4 h-4 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[9px] font-black">M</span>
+                  <span>M-Pesa STK</span>
                 </button>
 
                 <button
@@ -468,8 +508,8 @@ export default function AdminPOS() {
             </div>
           </div>
 
-          {/* TOTAL & SUBMIT BUTTON */}
-          <div className="pt-4 border-t border-slate-100 space-y-3">
+          {/* TOTAL & SUBMIT */}
+          <div className="pt-3 border-t border-slate-100 space-y-3">
             <div className="flex justify-between items-center text-sm">
               <span className="text-slate-600 font-bold">Subtotal Due:</span>
               <span className="text-2xl font-black text-[#0B3FA8]">
@@ -480,12 +520,12 @@ export default function AdminPOS() {
             <button
               onClick={handlePOSCheckout}
               disabled={loading || subtotal === 0}
-              className="w-full bg-[#0B3FA8] hover:bg-[#062B73] disabled:opacity-50 text-white py-3.5 rounded-xl font-extrabold text-sm flex items-center justify-center space-x-2 shadow-lg shadow-[#0B3FA8]/25"
+              className="w-full bg-[#0B3FA8] hover:bg-[#062B73] disabled:opacity-50 text-white py-3.5 rounded-xl font-extrabold text-sm flex items-center justify-center space-x-2 shadow-lg"
             >
               {loading ? (
                 <>
                   <RefreshCw className="w-5 h-5 animate-spin" />
-                  <span>Processing Checkout...</span>
+                  <span>Processing...</span>
                 </>
               ) : (
                 <>
@@ -495,12 +535,10 @@ export default function AdminPOS() {
               )}
             </button>
           </div>
-
         </div>
-
       </div>
 
-      {/* STK PUSH WAITING STATE IN POS */}
+      {/* STK PUSH PROMPT MODAL */}
       {stkState === 'awaiting_pin' && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl p-8 max-w-md w-full text-center space-y-6 shadow-2xl">
@@ -511,21 +549,8 @@ export default function AdminPOS() {
             <div>
               <h3 className="text-xl font-black text-[#062B73]">M-Pesa STK Prompt Sent</h3>
               <p className="text-xs text-slate-600 font-medium mt-1">
-                Prompt sent to customer's handset <span className="font-bold text-slate-900">{customerPhone}</span>.
+                Prompt sent to client's phone <span className="font-bold text-slate-900">{customerPhone}</span>.
               </p>
-              <p className="text-xs text-[#0B3FA8] font-bold mt-2">
-                Ask customer to enter their M-Pesa PIN on their phone.
-              </p>
-            </div>
-
-            <div className="p-3 bg-slate-50 rounded-xl text-xs flex justify-between font-bold">
-              <span>Order Amount:</span>
-              <span className="text-[#0B3FA8] font-black">KSh {subtotal.toLocaleString()}</span>
-            </div>
-
-            <div className="flex items-center justify-center space-x-2 text-xs text-slate-400">
-              <RefreshCw className="w-4 h-4 animate-spin text-[#0B3FA8]" />
-              <span>Awaiting Safaricom payment callback...</span>
             </div>
 
             <button
@@ -538,7 +563,7 @@ export default function AdminPOS() {
         </div>
       )}
 
-      {/* POS THERMAL RECEIPT MODAL */}
+      {/* POS RECEIPT MODAL */}
       {showReceiptModal && createdOrder && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-6">
@@ -552,7 +577,6 @@ export default function AdminPOS() {
               </button>
             </div>
 
-            {/* RECEIPT TAPE FORMAT */}
             <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 font-mono text-xs space-y-3 text-slate-800">
               <div className="text-center pb-3 border-b border-dashed border-slate-300">
                 <div className="font-black text-sm text-[#062B73]">NYOTA DRY CLEANERS</div>
@@ -562,8 +586,8 @@ export default function AdminPOS() {
               </div>
 
               <div className="space-y-1 py-2 border-b border-dashed border-slate-300">
-                <div>Customer: {createdOrder.customer_name}</div>
-                <div>Phone: {createdOrder.customer_phone}</div>
+                <div>Client Phone: {createdOrder.customer_phone}</div>
+                {createdOrder.customer_name && <div>Client Name: {createdOrder.customer_name}</div>}
                 {paymentObj?.mpesa_receipt_number && (
                   <div className="font-bold text-emerald-700">M-Pesa Ref: {paymentObj.mpesa_receipt_number}</div>
                 )}
@@ -583,25 +607,15 @@ export default function AdminPOS() {
                   <span>TOTAL:</span>
                   <span>KSh {parseFloat(createdOrder.total_amount).toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between text-emerald-700">
-                  <span>PAID:</span>
-                  <span>KSh {parseFloat(createdOrder.paid_amount || subtotal).toLocaleString()}</span>
-                </div>
               </div>
             </div>
 
             <div className="flex justify-between space-x-3">
-              <button
-                onClick={() => window.print()}
-                className="flex-1 bg-slate-800 text-white py-2.5 rounded-xl font-bold text-xs flex items-center justify-center space-x-2"
-              >
+              <button onClick={() => window.print()} className="flex-1 bg-slate-800 text-white py-2.5 rounded-xl font-bold text-xs flex items-center justify-center space-x-2">
                 <Printer className="w-4 h-4" />
                 <span>Print POS Receipt</span>
               </button>
-              <button
-                onClick={resetPOSForm}
-                className="flex-1 bg-[#0B3FA8] text-white py-2.5 rounded-xl font-bold text-xs"
-              >
+              <button onClick={resetPOSForm} className="flex-1 bg-[#0B3FA8] text-white py-2.5 rounded-xl font-bold text-xs">
                 New Order
               </button>
             </div>

@@ -36,16 +36,69 @@ class OrderController extends Controller
     }
 
     /**
-     * Create a new customer laundry order.
+     * Lookup Customer History by Phone Number.
+     * GET /api/v1/customers/history?phone=07XXXXXXXX
+     */
+    public function customerHistory(Request $request): JsonResponse
+    {
+        $phone = $request->input('phone');
+
+        if (empty($phone)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Phone number parameter is required.',
+            ], 400);
+        }
+
+        $cleanedPhone = preg_replace('/[^0-9]/', '', $phone);
+
+        $orders = Order::with('items')
+            ->where('customer_phone', 'like', "%{$cleanedPhone}%")
+            ->latest()
+            ->get();
+
+        if ($orders->isEmpty()) {
+            return response()->json([
+                'success' => true,
+                'is_returning_customer' => false,
+                'message' => 'New customer.',
+                'total_orders' => 0,
+                'total_spent' => 0,
+                'customer_name' => null,
+                'orders' => [],
+            ]);
+        }
+
+        $lastOrderWithName = $orders->first(fn ($o) => ! empty($o->customer_name) && ! str_starts_with($o->customer_name, 'Client '));
+        $customerName = $lastOrderWithName ? $lastOrderWithName->customer_name : $orders->first()->customer_name;
+
+        $totalSpent = (float) $orders->sum('paid_amount');
+        $totalOrders = $orders->count();
+        $outstandingBalance = (float) $orders->sum('balance_amount');
+
+        return response()->json([
+            'success' => true,
+            'is_returning_customer' => true,
+            'customer_phone' => $phone,
+            'customer_name' => $customerName,
+            'total_orders' => $totalOrders,
+            'total_spent' => $totalSpent,
+            'outstanding_balance' => $outstandingBalance,
+            'orders' => $orders->take(5),
+        ]);
+    }
+
+    /**
+     * Create a new customer laundry order using Phone Number as primary identifier.
      * POST /api/v1/orders
      */
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'customer_name' => 'required|string|max:255',
-            'customer_email' => 'nullable|email|max:255',
             'customer_phone' => 'required|string|min:9|max:15',
-            'delivery_option' => 'required|string|in:pickup_delivery,drop_off',
+            'customer_name' => 'nullable|string|max:255',
+            'customer_email' => 'nullable|email|max:255',
+            'delivery_option' => 'nullable|string|in:pickup_delivery,drop_off',
             'delivery_address' => 'nullable|string|max:500',
             'pickup_date' => 'nullable|date',
             'notes' => 'nullable|string|max:1000',
@@ -58,15 +111,21 @@ class OrderController extends Controller
             $paymentModeRequired = Setting::get('payment_mode_required', 'FULL_PAYMENT');
             $depositPercentage = (float) Setting::get('deposit_percentage', '30');
 
-            // Generate unique Order Number
+            $phone = $validated['customer_phone'];
+
+            // If name not provided, auto-assign from past history or default to "Client [phone]"
+            $customerName = ! empty($validated['customer_name'])
+                ? $validated['customer_name']
+                : (Order::where('customer_phone', $phone)->whereNotNull('customer_name')->value('customer_name') ?? ('Client '.substr($phone, -4)));
+
             $orderNumber = 'NY-'.date('Ymd').'-'.rand(1000, 9999);
 
             $order = Order::create([
                 'order_number' => $orderNumber,
-                'customer_name' => $validated['customer_name'],
+                'customer_name' => $customerName,
                 'customer_email' => $validated['customer_email'] ?? null,
-                'customer_phone' => $validated['customer_phone'],
-                'delivery_option' => $validated['delivery_option'],
+                'customer_phone' => $phone,
+                'delivery_option' => $validated['delivery_option'] ?? 'drop_off',
                 'delivery_address' => $validated['delivery_address'] ?? null,
                 'pickup_date' => $validated['pickup_date'] ?? null,
                 'total_amount' => 0,
