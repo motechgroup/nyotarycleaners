@@ -20,6 +20,7 @@ Route::prefix('v1')->group(function () {
     Route::get('/payments/status/{checkoutRequestId}', [MpesaController::class, 'status']);
 
     // Admin ERP Dashboard & Payments Management
+    Route::post('/admin/pin-login', [AdminPaymentController::class, 'pinLogin']);
     Route::get('/admin/dashboard-stats', [AdminPaymentController::class, 'dashboardStats']);
     Route::get('/admin/payments', [AdminPaymentController::class, 'payments']);
     Route::get('/admin/orders', [AdminPaymentController::class, 'orders']);

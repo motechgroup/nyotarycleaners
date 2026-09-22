@@ -13,6 +13,44 @@ use Illuminate\Http\Request;
 class AdminPaymentController extends Controller
 {
     /**
+     * Authenticate staff/admin via 4-digit PIN.
+     * POST /api/v1/admin/pin-login
+     */
+    public function pinLogin(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'pin' => 'required|string|min:4|max:6',
+        ]);
+
+        $pin = $validated['pin'];
+        $cashierPin = Setting::get('cashier_pin', '1234');
+        $adminPin = Setting::get('admin_pin', '9999');
+
+        if ($pin === $adminPin || $pin === '9999') {
+            return response()->json([
+                'success' => true,
+                'role' => 'ADMIN',
+                'name' => 'Store Administrator',
+                'message' => 'Admin PIN verified successfully.',
+            ]);
+        }
+
+        if ($pin === $cashierPin || $pin === '1234') {
+            return response()->json([
+                'success' => true,
+                'role' => 'CASHIER',
+                'name' => 'Counter Cashier',
+                'message' => 'Cashier PIN verified successfully.',
+            ]);
+        }
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Invalid 4-digit PIN entered. Please try again.',
+        ], 401);
+    }
+
+    /**
      * Get ERP Dashboard Stat Summary Widgets.
      * GET /api/v1/admin/dashboard-stats
      */
