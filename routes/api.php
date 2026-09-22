@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\AdminCustomerController;
 use App\Http\Controllers\Api\AdminPaymentController;
 use App\Http\Controllers\Api\AdminServiceController;
 use App\Http\Controllers\Api\MpesaController;
@@ -33,4 +34,10 @@ Route::prefix('v1')->group(function () {
     Route::put('/admin/services/{id}', [AdminServiceController::class, 'update']);
     Route::patch('/admin/services/{id}/toggle-status', [AdminServiceController::class, 'toggleStatus']);
     Route::delete('/admin/services/{id}', [AdminServiceController::class, 'destroy']);
+
+    // Admin ERP Customer Management
+    Route::get('/admin/customers', [AdminCustomerController::class, 'index']);
+    Route::get('/admin/customers/{id}', [AdminCustomerController::class, 'show']);
+    Route::put('/admin/customers/{id}', [AdminCustomerController::class, 'update']);
+    Route::delete('/admin/customers/{id}', [AdminCustomerController::class, 'destroy']);
 });

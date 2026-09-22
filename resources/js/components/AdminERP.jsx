@@ -27,11 +27,14 @@ import {
   Mail,
   MapPin,
   CheckSquare,
-  ShieldCheck
+  ShieldCheck,
+  Users,
+  Eye,
+  Star
 } from 'lucide-react';
 
 export default function AdminERP() {
-  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'orders' | 'transactions' | 'reconciliation' | 'services' | 'settings'
+  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'customers' | 'orders' | 'transactions' | 'reconciliation' | 'services' | 'settings'
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   // Data States
@@ -49,6 +52,15 @@ export default function AdminERP() {
   const [payments, setPayments] = useState([]);
   const [reconciliationList, setReconciliationList] = useState([]);
   const [adminServices, setAdminServices] = useState([]);
+
+  // Customer Management States
+  const [customersList, setCustomersList] = useState([]);
+  const [customerSummary, setCustomerSummary] = useState({ total_customers: 0, returning_customers: 0, total_spend: 0 });
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [selectedCustomerModal, setSelectedCustomerModal] = useState(null);
+  const [editingCustomerModal, setEditingCustomerModal] = useState(null);
+  const [customerEditForm, setCustomerEditForm] = useState({ name: '', phone: '', email: '', address: '' });
+
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -91,7 +103,77 @@ export default function AdminERP() {
     fetchPayments();
     fetchReconciliation();
     fetchAdminServices();
+    fetchCustomers();
   }, []);
+
+  const fetchCustomers = (query = customerSearch) => {
+    let url = '/api/v1/admin/customers';
+    if (query) url += `?search=${encodeURIComponent(query)}`;
+
+    fetch(url)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          setCustomersList(data.customers || []);
+          if (data.summary) setCustomerSummary(data.summary);
+        }
+      })
+      .catch((err) => console.error(err));
+  };
+
+  const handleOpenCustomerDetail = (customerId) => {
+    fetch(`/api/v1/admin/customers/${customerId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.customer) {
+          setSelectedCustomerModal(data.customer);
+        }
+      })
+      .catch((err) => console.error(err));
+  };
+
+  const handleOpenEditCustomer = (customer) => {
+    setEditingCustomerModal(customer);
+    setCustomerEditForm({
+      name: customer.name || '',
+      phone: customer.phone || '',
+      email: customer.email || '',
+      address: customer.address || '',
+    });
+  };
+
+  const handleSaveCustomer = (e) => {
+    e.preventDefault();
+    if (!editingCustomerModal) return;
+
+    fetch(`/api/v1/admin/customers/${editingCustomerModal.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(customerEditForm),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          setAlertMsg({ type: 'success', text: 'Customer profile updated successfully!' });
+          setEditingCustomerModal(null);
+          fetchCustomers();
+        }
+      })
+      .catch((err) => console.error(err));
+  };
+
+  const handleDeleteCustomer = (customerId) => {
+    if (!confirm('Are you sure you want to remove this customer record?')) return;
+    fetch(`/api/v1/admin/customers/${customerId}`, { method: 'DELETE' })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          setAlertMsg({ type: 'success', text: 'Customer record deleted.' });
+          fetchCustomers();
+        }
+      })
+      .catch((err) => console.error(err));
+  };
 
   const fetchStats = () => {
     fetch('/api/v1/admin/dashboard-stats')
@@ -334,6 +416,16 @@ export default function AdminERP() {
             </button>
 
             <button
+              onClick={() => setActiveTab('customers')}
+              className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl transition-all ${
+                activeTab === 'customers' ? 'bg-[#0B3FA8] text-white shadow-lg' : 'text-slate-300 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <Users className="w-5 h-5 shrink-0" />
+              {isSidebarOpen && <span>Customers Manager</span>}
+            </button>
+
+            <button
               onClick={() => setActiveTab('orders')}
               className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl transition-all ${
                 activeTab === 'orders' ? 'bg-[#0B3FA8] text-white shadow-lg' : 'text-slate-300 hover:bg-white/10 hover:text-white'
@@ -419,6 +511,7 @@ export default function AdminERP() {
             </div>
             <h1 className="text-2xl font-black text-[#062B73]">
               {activeTab === 'dashboard' && 'Dashboard Overview'}
+              {activeTab === 'customers' && 'Customer Profiles & History'}
               {activeTab === 'orders' && 'Orders Management'}
               {activeTab === 'transactions' && 'M-Pesa Activity Log'}
               {activeTab === 'reconciliation' && 'Payment Reconciliation'}
@@ -450,6 +543,116 @@ export default function AdminERP() {
             <button onClick={() => setAlertMsg({ type: '', text: '' })}>
               <X className="w-4 h-4" />
             </button>
+          </div>
+        )}
+
+        {/* TAB: CUSTOMERS MANAGER */}
+        {activeTab === 'customers' && (
+          <div className="space-y-6">
+            {/* SUMMARY CARDS */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-1">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#0B3FA8]">Total Registered Clients</span>
+                <div className="text-2xl font-black text-[#062B73]">{customerSummary.total_customers}</div>
+              </div>
+
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-1">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600">Returning Clients (&gt;1 Order)</span>
+                <div className="text-2xl font-black text-emerald-700">{customerSummary.returning_customers}</div>
+              </div>
+
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-1">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700">Total Customer Revenue</span>
+                <div className="text-2xl font-black text-slate-900">KSh {customerSummary.total_spend.toLocaleString()}</div>
+              </div>
+            </div>
+
+            {/* CUSTOMER TABLE & SEARCH */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-bold text-[#062B73]">Customer Profiles & Order History</h2>
+                  <p className="text-xs text-slate-500">Clients are auto-tracked by primary Kenyan mobile numbers (07XX / 01XX).</p>
+                </div>
+
+                <div className="relative w-full sm:w-80">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                  <input
+                    type="text"
+                    placeholder="Search by Phone (07... / 01...), Name..."
+                    value={customerSearch}
+                    onChange={(e) => {
+                      setCustomerSearch(e.target.value);
+                      fetchCustomers(e.target.value);
+                    }}
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 text-xs font-medium outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-[#F4F8FF] text-[11px] font-bold text-[#062B73] uppercase tracking-wider border-b border-slate-200">
+                      <th className="p-4">Phone Number (Primary ID)</th>
+                      <th className="p-4">Customer Name</th>
+                      <th className="p-4">Total Orders</th>
+                      <th className="p-4">Total Spent</th>
+                      <th className="p-4">Last Order Date</th>
+                      <th className="p-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {customersList.map((cust) => (
+                      <tr key={cust.id} className="hover:bg-slate-50">
+                        <td className="p-4 font-mono font-bold text-[#0B3FA8]">
+                          <span className="px-2.5 py-1 rounded-lg bg-[#EAF3FF] text-[#062B73] inline-block">
+                            {cust.phone}
+                          </span>
+                        </td>
+                        <td className="p-4 font-bold text-slate-900">{cust.name || 'Client ' + cust.phone.slice(-4)}</td>
+                        <td className="p-4">
+                          <div className="flex items-center space-x-1.5">
+                            <span className="font-extrabold text-slate-800">{cust.total_orders}</span>
+                            {cust.total_orders > 1 && (
+                              <span className="text-[10px] font-black bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full flex items-center space-x-1">
+                                <Star className="w-3 h-3 text-emerald-600 fill-emerald-600" />
+                                <span>Returning</span>
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-4 font-black text-slate-900">KSh {parseFloat(cust.total_spent || 0).toLocaleString()}</td>
+                        <td className="p-4 text-slate-500">
+                          {cust.last_order_at ? new Date(cust.last_order_at).toLocaleDateString() : 'No orders yet'}
+                        </td>
+                        <td className="p-4 text-right space-x-2">
+                          <button
+                            onClick={() => handleOpenCustomerDetail(cust.id)}
+                            className="px-3 py-1.5 rounded-lg bg-[#0B3FA8] text-white font-bold text-xs inline-flex items-center space-x-1 hover:bg-[#062B73]"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>View History</span>
+                          </button>
+                          <button
+                            onClick={() => handleOpenEditCustomer(cust)}
+                            className="p-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 inline-block"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteCustomer(cust.id)}
+                            className="p-1.5 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 inline-block"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         )}
 
@@ -940,6 +1143,132 @@ export default function AdminERP() {
               ></textarea>
               <button type="submit" className="w-full bg-[#0B3FA8] text-white py-2.5 rounded-xl font-bold">
                 Save Service & Price
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW CUSTOMER DETAIL & HISTORY MODAL */}
+      {selectedCustomerModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-2xl w-full shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b pb-3">
+              <div>
+                <h3 className="font-black text-lg text-[#062B73] flex items-center space-x-2">
+                  <span>Customer Profile: {selectedCustomerModal.name}</span>
+                </h3>
+                <span className="text-xs font-mono font-bold text-[#0B3FA8]">Phone: {selectedCustomerModal.phone}</span>
+              </div>
+              <button onClick={() => setSelectedCustomerModal(null)} className="p-1 text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 bg-[#F4F8FF] p-4 rounded-xl border border-[#0B3FA8]/15 text-xs">
+              <div>
+                <span className="text-slate-500 font-bold block">Total Orders:</span>
+                <span className="text-lg font-black text-[#062B73]">{selectedCustomerModal.total_orders}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 font-bold block">Total Lifetime Spend:</span>
+                <span className="text-lg font-black text-emerald-700">KSh {parseFloat(selectedCustomerModal.total_spent || 0).toLocaleString()}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 font-bold block">Registered Since:</span>
+                <span className="text-xs font-bold text-slate-700">{new Date(selectedCustomerModal.created_at).toLocaleDateString()}</span>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <h4 className="text-xs font-extrabold text-[#062B73] uppercase tracking-wider">Customer Order History</h4>
+              {selectedCustomerModal.orders && selectedCustomerModal.orders.length > 0 ? (
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-1 text-xs">
+                  {selectedCustomerModal.orders.map((ord) => (
+                    <div key={ord.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between">
+                      <div>
+                        <div className="font-bold text-[#062B73]">{ord.order_number}</div>
+                        <div className="text-[11px] text-slate-500">{new Date(ord.created_at).toLocaleString()}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-black text-slate-900">KSh {parseFloat(ord.total_amount).toLocaleString()}</div>
+                        <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                          {ord.order_status}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-4 text-slate-400 text-xs">No orders recorded yet for this customer profile.</div>
+              )}
+            </div>
+
+            <div className="pt-3 border-t flex justify-end">
+              <button
+                onClick={() => setSelectedCustomerModal(null)}
+                className="bg-slate-800 text-white px-6 py-2 rounded-xl text-xs font-bold"
+              >
+                Close Profile
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT CUSTOMER PROFILE MODAL */}
+      {editingCustomerModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex justify-between items-center border-b pb-2">
+              <h3 className="font-bold text-base text-[#062B73]">Edit Customer Profile</h3>
+              <button onClick={() => setEditingCustomerModal(null)}><X className="w-5 h-5" /></button>
+            </div>
+            <form onSubmit={handleSaveCustomer} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Customer Phone (Primary Key)</label>
+                <input
+                  type="text"
+                  value={customerEditForm.phone}
+                  onChange={(e) => setCustomerEditForm({ ...customerEditForm, phone: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border font-bold text-[#0B3FA8]"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Customer Name</label>
+                <input
+                  type="text"
+                  placeholder="Client Name"
+                  value={customerEditForm.name}
+                  onChange={(e) => setCustomerEditForm({ ...customerEditForm, name: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Email Address</label>
+                <input
+                  type="email"
+                  placeholder="Email Address"
+                  value={customerEditForm.email}
+                  onChange={(e) => setCustomerEditForm({ ...customerEditForm, email: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Physical Address</label>
+                <textarea
+                  placeholder="Delivery Address"
+                  value={customerEditForm.address}
+                  onChange={(e) => setCustomerEditForm({ ...customerEditForm, address: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border"
+                ></textarea>
+              </div>
+
+              <button type="submit" className="w-full bg-[#0B3FA8] text-white py-2.5 rounded-xl font-bold shadow">
+                Save Customer Changes
               </button>
             </form>
           </div>
