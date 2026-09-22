@@ -34,6 +34,7 @@ class AdminPaymentController extends Controller
 
         $pendingPaymentsCount = Payment::whereIn('status', ['PENDING', 'PROCESSING'])->count();
         $failedPaymentsCount = Payment::where('status', 'FAILED')->count();
+        $totalOrdersCount = Order::count();
 
         $outstandingBalances = (float) Order::where('balance_amount', '>', 0)
             ->where('order_status', '!=', 'CANCELLED')
@@ -67,9 +68,10 @@ class AdminPaymentController extends Controller
                 'pending_payments' => $pendingPaymentsCount,
                 'failed_payments' => $failedPaymentsCount,
                 'outstanding_balances' => $outstandingBalances,
+                'total_orders' => $totalOrdersCount,
             ],
             'recent_transactions' => $recentTransactions,
-            'payment_mode_required' => Setting::get('payment_mode_required', 'FULL_PAYMENT'),
+            'settings' => $this->getSettingsArray(),
         ]);
     }
 
@@ -81,7 +83,6 @@ class AdminPaymentController extends Controller
     {
         $query = Payment::with('order');
 
-        // Search by receipt, customer, phone, order number, or reference
         if ($request->filled('search')) {
             $search = $request->input('search');
             $query->where(function ($q) use ($search) {
@@ -96,23 +97,12 @@ class AdminPaymentController extends Controller
             });
         }
 
-        // Filter by status
         if ($request->filled('status')) {
             $query->where('status', strtoupper($request->input('status')));
         }
 
-        // Filter by payment method
         if ($request->filled('method')) {
             $query->where('payment_method', strtolower($request->input('method')));
-        }
-
-        // Filter by date range
-        if ($request->filled('date_from')) {
-            $query->whereDate('created_at', '>=', $request->input('date_from'));
-        }
-
-        if ($request->filled('date_to')) {
-            $query->whereDate('created_at', '<=', $request->input('date_to'));
         }
 
         $payments = $query->latest()->paginate(20);
@@ -124,10 +114,66 @@ class AdminPaymentController extends Controller
     }
 
     /**
-     * Reconciliation report: Orders with Totals, Paid, M-Pesa Receipt, and Balances.
+     * List and filter orders for Admin ERP Orders Manager.
+     * GET /api/v1/admin/orders
+     */
+    public function orders(Request $request): JsonResponse
+    {
+        $query = Order::with(['items', 'payments']);
+
+        if ($request->filled('search')) {
+            $search = $request->input('search');
+            $query->where(function ($q) use ($search) {
+                $q->where('order_number', 'like', "%{$search}%")
+                    ->orWhere('customer_name', 'like', "%{$search}%")
+                    ->orWhere('customer_phone', 'like', "%{$search}%")
+                    ->orWhere('customer_email', 'like', "%{$search}%");
+            });
+        }
+
+        if ($request->filled('order_status')) {
+            $query->where('order_status', strtoupper($request->input('order_status')));
+        }
+
+        if ($request->filled('payment_status')) {
+            $query->where('payment_status', strtoupper($request->input('payment_status')));
+        }
+
+        $orders = $query->latest()->paginate(15);
+
+        return response()->json([
+            'success' => true,
+            'orders' => $orders,
+        ]);
+    }
+
+    /**
+     * Update order processing status.
+     * PATCH /api/v1/admin/orders/{id}/status
+     */
+    public function updateOrderStatus(Request $request, string $id): JsonResponse
+    {
+        $order = Order::findOrFail($id);
+
+        $validated = $request->validate([
+            'order_status' => 'required|string|in:PENDING,PROCESSING,CLEANING,READY,DELIVERED,CANCELLED',
+        ]);
+
+        $order->order_status = $validated['order_status'];
+        $order->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Order status updated successfully.',
+            'order' => $order,
+        ]);
+    }
+
+    /**
+     * Reconciliation report.
      * GET /api/v1/admin/reconciliation
      */
-    public function reconciliation(Request $request): JsonResponse
+    public function reconciliation(): JsonResponse
     {
         $orders = Order::with('payments')->latest()->paginate(20);
 
@@ -146,8 +192,8 @@ class AdminPaymentController extends Controller
                 'paid_amount' => (float) $order->paid_amount,
                 'balance_amount' => (float) $order->balance_amount,
                 'payment_status' => $order->payment_status,
+                'order_status' => $order->order_status,
                 'mpesa_receipt' => $lastMpesaPayment ? $lastMpesaPayment->mpesa_receipt_number : 'N/A',
-                'payment_method' => $order->payments->first() ? strtoupper($order->payments->first()->payment_method) : 'N/A',
                 'created_at' => $order->created_at->format('Y-m-d H:i'),
             ];
         });
@@ -164,7 +210,19 @@ class AdminPaymentController extends Controller
     }
 
     /**
-     * Update Business Payment Configuration.
+     * Get system settings.
+     * GET /api/v1/admin/settings
+     */
+    public function getSettings(): JsonResponse
+    {
+        return response()->json([
+            'success' => true,
+            'settings' => $this->getSettingsArray(),
+        ]);
+    }
+
+    /**
+     * Update System Settings.
      * POST /api/v1/admin/settings
      */
     public function updateSettings(Request $request): JsonResponse
@@ -172,21 +230,42 @@ class AdminPaymentController extends Controller
         $validated = $request->validate([
             'payment_mode_required' => 'required|string|in:FULL_PAYMENT,DEPOSIT,PAY_AFTER_SERVICE',
             'deposit_percentage' => 'nullable|numeric|min:1|max:100',
+            'business_name' => 'required|string|max:255',
+            'business_slogan' => 'required|string|max:255',
+            'business_phone' => 'required|string|max:100',
+            'business_email' => 'required|email|max:255',
+            'business_address' => 'nullable|string|max:500',
+            'operating_hours' => 'nullable|string|max:255',
+            'express_service_enabled' => 'boolean',
+            'express_surcharge' => 'nullable|numeric|min:0',
         ]);
 
-        Setting::set('payment_mode_required', $validated['payment_mode_required']);
-
-        if (isset($validated['deposit_percentage'])) {
-            Setting::set('deposit_percentage', (string) $validated['deposit_percentage']);
+        foreach ($validated as $key => $value) {
+            Setting::set($key, is_bool($value) ? ($value ? '1' : '0') : (string) $value);
         }
 
         return response()->json([
             'success' => true,
-            'message' => 'Payment rules updated successfully.',
-            'settings' => [
-                'payment_mode_required' => Setting::get('payment_mode_required'),
-                'deposit_percentage' => Setting::get('deposit_percentage'),
-            ],
+            'message' => 'System settings updated successfully.',
+            'settings' => $this->getSettingsArray(),
         ]);
+    }
+
+    private function getSettingsArray(): array
+    {
+        return [
+            'payment_mode_required' => Setting::get('payment_mode_required', 'FULL_PAYMENT'),
+            'deposit_percentage' => (float) Setting::get('deposit_percentage', '30'),
+            'business_name' => Setting::get('business_name', 'Nyota Dry Cleaners'),
+            'business_slogan' => Setting::get('business_slogan', 'Fresh. Clean. Perfect.'),
+            'business_phone' => Setting::get('business_phone', '+254708374149'),
+            'business_email' => Setting::get('business_email', 'support@nyotacleaners.co.ke'),
+            'business_address' => Setting::get('business_address', 'Nyanchwa / Nairobi Center, Kenya'),
+            'operating_hours' => Setting::get('operating_hours', 'Mon - Sat: 7:00 AM - 8:00 PM | Sun: 9:00 AM - 5:00 PM'),
+            'express_service_enabled' => Setting::get('express_service_enabled', '1') === '1',
+            'express_surcharge' => (float) Setting::get('express_surcharge', '500'),
+            'mpesa_environment' => env('MPESA_ENVIRONMENT', 'sandbox'),
+            'mpesa_shortcode' => env('MPESA_SHORTCODE', '174379'),
+        ];
     }
 }

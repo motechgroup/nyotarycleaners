@@ -20,7 +20,10 @@ Route::prefix('v1')->group(function () {
     // Admin ERP Dashboard & Payments Management
     Route::get('/admin/dashboard-stats', [AdminPaymentController::class, 'dashboardStats']);
     Route::get('/admin/payments', [AdminPaymentController::class, 'payments']);
+    Route::get('/admin/orders', [AdminPaymentController::class, 'orders']);
+    Route::patch('/admin/orders/{id}/status', [AdminPaymentController::class, 'updateOrderStatus']);
     Route::get('/admin/reconciliation', [AdminPaymentController::class, 'reconciliation']);
+    Route::get('/admin/settings', [AdminPaymentController::class, 'getSettings']);
     Route::post('/admin/settings', [AdminPaymentController::class, 'updateSettings']);
 
     // Admin ERP Service & Price Management
